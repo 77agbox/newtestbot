@@ -3,7 +3,7 @@ from aiogram import types
 from aiogram.utils import executor
 from config import BOT_TOKEN
 
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+bot = Bot(token=BOT_TOKEN, parse_mode=types.HTML)
 dp = Dispatcher(bot)
 
 if __name__ == '__main__':
