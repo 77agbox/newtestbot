@@ -1,4 +1,5 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from handlers.packages import PACKAGE_MODULES
 
 # Основная клавиатура
 def bottom_kb():
