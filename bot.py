@@ -88,50 +88,67 @@ async def support(callback: CallbackQuery):
 
 # ================== КРУЖКИ ==================
 
-# ================== КРУЖКИ ==================
-
 class ClubForm(StatesGroup):
     age = State()
+    address = State()
+    direction = State()
+
+
+ADDRESSES = {
+    "gaz": "Главное здание – ул. Газопровод д.4",
+    "ann": "МХС Аннино – Варшавское ш. 145 стр.1",
+    "tech": "СП Юный техник – ул. Нагатинская 22к2",
+    "sher": "СП Щербинка – ул. Пушкинская 3А",
+    "online": "Онлайн"
+}
+
+
+def address_keyboard():
+    buttons = [
+        [InlineKeyboardButton(text="Главное здание", callback_data="addr_gaz")],
+        [InlineKeyboardButton(text="МХС Аннино", callback_data="addr_ann")],
+        [InlineKeyboardButton(text="СП Юный техник", callback_data="addr_tech")],
+        [InlineKeyboardButton(text="СП Щербинка", callback_data="addr_sher")],
+        [InlineKeyboardButton(text="Онлайн", callback_data="addr_online")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def direction_keyboard(directions):
+    buttons = []
+    for d in directions:
+        buttons.append(
+            [InlineKeyboardButton(text=d, callback_data=f"dir_{d}")]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def club_keyboard(clubs):
+    buttons = []
+    for c in clubs:
+        buttons.append(
+            [InlineKeyboardButton(text=c["name"], callback_data=f"club_{c['name']}")]
+        )
+    buttons.append([InlineKeyboardButton(text="⬅ Назад", callback_data="back_dir")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def parse_age_range(age_text: str):
-    """
-    Извлекаем минимальный и максимальный возраст из строки.
-    Поддерживает:
-    6-8
-    6 - 8 лет
-    от 6 до 8
-    7+
-    5
-    """
-
     if not age_text:
         return None, None
 
     text = age_text.lower().replace("лет", "").replace(" ", "")
 
-    # формат 6-8
     if "-" in text:
         parts = text.split("-")
         if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
             return int(parts[0]), int(parts[1])
 
-    # формат от6до8
-    if "от" in text and "до" in text:
-        try:
-            start = int(text.split("от")[1].split("до")[0])
-            end = int(text.split("до")[1])
-            return start, end
-        except:
-            pass
-
-    # формат 7+
     if "+" in text:
         number = text.replace("+", "")
         if number.isdigit():
             return int(number), 99
 
-    # формат одно число
     if text.isdigit():
         age = int(text)
         return age, age
@@ -169,36 +186,115 @@ async def clubs_age(message: Message, state: FSMContext):
         await message.answer("Введите возраст числом.")
         return
 
-    user_age = int(message.text)
+    await state.update_data(age=int(message.text))
+    await state.set_state(ClubForm.address)
+
+    await message.answer("Выберите подразделение:", reply_markup=address_keyboard())
+
+
+@dp.callback_query(F.data.startswith("addr_"))
+async def clubs_address(callback: CallbackQuery, state: FSMContext):
+    addr_key = callback.data.split("_")[1]
+    await state.update_data(address=ADDRESSES[addr_key])
+    await state.set_state(ClubForm.direction)
+
+    data = await state.get_data()
     clubs = load_clubs()
 
     filtered = []
 
     for club in clubs:
         min_age, max_age = parse_age_range(str(club["age"]))
+        if min_age and max_age:
+            if min_age <= data["age"] <= max_age:
+                if addr_key == "online":
+                    if not club["address"]:
+                        filtered.append(club)
+                else:
+                    if ADDRESSES[addr_key] in str(club["address"]):
+                        filtered.append(club)
 
-        if min_age is not None and max_age is not None:
-            if min_age <= user_age <= max_age:
-                filtered.append(club)
+    directions = list(set([c["direction"] for c in filtered]))
 
-    if not filtered:
-        await message.answer("К сожалению, подходящих кружков не найдено.")
+    if not directions:
+        await callback.message.answer("Подходящих кружков нет.")
         await state.clear()
         return
 
-    text = "<b>Подходящие кружки:</b>\n\n"
+    await callback.message.answer(
+        "Выберите направление:",
+        reply_markup=direction_keyboard(directions)
+    )
 
-    for c in filtered:
-        text += (
-            f"<b>{c['name']}</b>\n"
-            f"Возраст: {c['age']}\n"
-            f"Педагог: {c['teacher']}\n"
-            f"Адрес: {c['address']}\n"
-            f"<a href='{c['link']}'>Подробнее</a>\n\n"
-        )
+    await callback.answer()
 
-    await message.answer(text)
-    await state.clear()
+
+@dp.callback_query(F.data.startswith("dir_"))
+async def clubs_direction(callback: CallbackQuery, state: FSMContext):
+    direction = callback.data.replace("dir_", "")
+    await state.update_data(direction=direction)
+
+    data = await state.get_data()
+    clubs = load_clubs()
+
+    result = []
+
+    for club in clubs:
+        min_age, max_age = parse_age_range(str(club["age"]))
+        if min_age and max_age:
+            if min_age <= data["age"] <= max_age:
+                if data["address"] in str(club["address"]) and club["direction"] == direction:
+                    result.append(club)
+
+    await state.update_data(filtered=result)
+
+    await callback.message.answer(
+        "Выберите кружок:",
+        reply_markup=club_keyboard(result)
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("club_"))
+async def club_card(callback: CallbackQuery, state: FSMContext):
+    club_name = callback.data.replace("club_", "")
+    data = await state.get_data()
+
+    for club in data["filtered"]:
+        if club["name"] == club_name:
+            text = (
+                f"<b>{club['name']}</b>\n\n"
+                f"Возраст: {club['age']}\n"
+                f"Педагог: {club['teacher']}\n"
+                f"Адрес: {club['address']}\n\n"
+                f"<a href='{club['link']}'>Подробнее</a>"
+            )
+
+            await callback.message.answer(
+                text,
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="⬅ Назад", callback_data="back_dir")]
+                    ]
+                )
+            )
+            break
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "back_dir")
+async def back_to_directions(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    directions = list(set([c["direction"] for c in data["filtered"]]))
+
+    await callback.message.answer(
+        "Выберите направление:",
+        reply_markup=direction_keyboard(directions)
+    )
+
+    await callback.answer()
 
 
 # ================== ПАКЕТЫ ==================
