@@ -1,5 +1,5 @@
 from aiogram import Bot, Dispatcher
-from aiogram.types import ParseMode
+from aiogram import types
 from aiogram.utils import executor
 from config import BOT_TOKEN
 
