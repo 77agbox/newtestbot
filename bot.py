@@ -55,6 +55,10 @@ class MasterForm(StatesGroup):
     teacher = State()
     link = State()
 
+    enroll_name = State()
+    enroll_phone = State()
+    enroll_index = State()
+
 class SupportForm(StatesGroup):
     text = State()
 
@@ -352,12 +356,16 @@ async def master_card(callback: CallbackQuery):
     m = masters[index]
 
     text = (
-        f"<b>{m['title']}</b>\n\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🎨 <b>{m['title']}</b>\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"📝 <b>Описание:</b>\n"
         f"{m['description']}\n\n"
-        f"📅 {m['date']}\n"
-        f"💰 {m['price']} ₽\n"
-        f"👩‍🏫 {m['teacher']}\n\n"
-        f"<a href='{m['link']}'>Подробнее</a>"
+        f"📅 <b>Дата и время:</b> {m['date']}\n"
+        f"💰 <b>Стоимость:</b> {m['price']} ₽\n"
+        f"👩‍🏫 <b>Педагог:</b> {m['teacher']}\n\n"
+        f"🔗 <a href='{m['link']}'>Подробнее</a>\n\n"
+        f"━━━━━━━━━━━━━━━"
     )
 
     await callback.message.answer(
@@ -368,30 +376,63 @@ async def master_card(callback: CallbackQuery):
             [InlineKeyboardButton(text="⬅ В меню", callback_data="menu")]
         ])
     )
+
     await callback.answer()
 
 
-@dp.callback_query(F.data.startswith("enroll_"))
-async def master_enroll(callback: CallbackQuery):
-    index = int(callback.data.split("_")[1])
-    masters = load_masterclasses()
+# ---------- Запись на МК с вводом данных ----------
 
+@dp.callback_query(F.data.startswith("enroll_"))
+async def master_enroll_start(callback: CallbackQuery, state: FSMContext):
+    index = int(callback.data.split("_")[1])
+
+    masters = load_masterclasses()
     if index >= len(masters):
         await callback.answer("Ошибка", show_alert=True)
         return
 
+    await state.update_data(enroll_index=index)
+    await state.set_state(MasterForm.enroll_name)
+
+    await callback.message.answer("Как к вам обращаться?")
+    await callback.answer()
+
+
+@dp.message(MasterForm.enroll_name)
+async def master_enroll_name(message: Message, state: FSMContext):
+    await state.update_data(enroll_name=message.text.strip())
+    await state.set_state(MasterForm.enroll_phone)
+    await message.answer("Введите номер телефона для связи:")
+
+
+@dp.message(MasterForm.enroll_phone)
+async def master_enroll_finish(message: Message, state: FSMContext):
+    data = await state.get_data()
+    masters = load_masterclasses()
+
+    index = data["enroll_index"]
+    if index >= len(masters):
+        await message.answer("Ошибка.")
+        await state.clear()
+        return
+
     m = masters[index]
+    name = data["enroll_name"]
+    phone = message.text.strip()
 
     await bot.send_message(
         ADMIN_ID,
-        f"📚 Запись на мастер-класс\n\n"
-        f"{m['title']}\n"
-        f"Профиль: {profile_link(callback.from_user)}\n"
-        f"TG ID: {callback.from_user.id}",
+        f"📚 <b>Новая запись на мастер-класс</b>\n\n"
+        f"<b>{m['title']}</b>\n\n"
+        f"👤 Имя: {name}\n"
+        f"📞 Телефон: {phone}\n\n"
+        f"Профиль: {profile_link(message.from_user)}\n"
+        f"TG ID: {message.from_user.id}",
         disable_web_page_preview=True
     )
 
-    await callback.answer("Заявка отправлена администратору ✅", show_alert=True)
+    await message.answer("Заявка отправлена администратору ✅")
+    await state.clear()
 
 # ---------- Админ ----------
 
