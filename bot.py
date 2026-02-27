@@ -88,8 +88,55 @@ async def support(callback: CallbackQuery):
 
 # ================== КРУЖКИ ==================
 
+# ================== КРУЖКИ ==================
+
 class ClubForm(StatesGroup):
     age = State()
+
+
+def parse_age_range(age_text: str):
+    """
+    Извлекаем минимальный и максимальный возраст из строки.
+    Поддерживает:
+    6-8
+    6 - 8 лет
+    от 6 до 8
+    7+
+    5
+    """
+
+    if not age_text:
+        return None, None
+
+    text = age_text.lower().replace("лет", "").replace(" ", "")
+
+    # формат 6-8
+    if "-" in text:
+        parts = text.split("-")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            return int(parts[0]), int(parts[1])
+
+    # формат от6до8
+    if "от" in text and "до" in text:
+        try:
+            start = int(text.split("от")[1].split("до")[0])
+            end = int(text.split("до")[1])
+            return start, end
+        except:
+            pass
+
+    # формат 7+
+    if "+" in text:
+        number = text.replace("+", "")
+        if number.isdigit():
+            return int(number), 99
+
+    # формат одно число
+    if text.isdigit():
+        age = int(text)
+        return age, age
+
+    return None, None
 
 
 def load_clubs():
@@ -112,23 +159,30 @@ def load_clubs():
 @dp.callback_query(F.data == "clubs")
 async def clubs_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ClubForm.age)
-    await callback.message.answer("Введите возраст ребёнка (число):")
+    await callback.message.answer("Укажите возраст.")
     await callback.answer()
 
 
 @dp.message(ClubForm.age)
 async def clubs_age(message: Message, state: FSMContext):
     if not message.text.isdigit():
-        await message.answer("Введите число.")
+        await message.answer("Введите возраст числом.")
         return
 
-    age = int(message.text)
+    user_age = int(message.text)
     clubs = load_clubs()
 
-    filtered = [c for c in clubs if str(age) in str(c["age"])]
+    filtered = []
+
+    for club in clubs:
+        min_age, max_age = parse_age_range(str(club["age"]))
+
+        if min_age is not None and max_age is not None:
+            if min_age <= user_age <= max_age:
+                filtered.append(club)
 
     if not filtered:
-        await message.answer("Кружков для этого возраста не найдено.")
+        await message.answer("К сожалению, подходящих кружков не найдено.")
         await state.clear()
         return
 
