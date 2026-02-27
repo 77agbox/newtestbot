@@ -384,7 +384,231 @@ async def package_finish(message: Message, state: FSMContext):
     )
 
     await state.clear()
+# ================= МАСТЕР-КЛАССЫ =================
 
+import json
+
+MASTER_FILE = "masterclasses.json"
+
+
+def load_masterclasses():
+    if not os.path.exists(MASTER_FILE):
+        with open(MASTER_FILE, "w", encoding="utf-8") as f:
+            json.dump([], f)
+        return []
+
+    with open(MASTER_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_masterclasses(data):
+    with open(MASTER_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+
+class MasterForm(StatesGroup):
+    title = State()
+    description = State()
+    date = State()
+    price = State()
+    teacher = State()
+    link = State()
+
+
+# ---------- КЛАВИАТУРЫ ----------
+
+def master_list_keyboard():
+    masters = load_masterclasses()
+    buttons = []
+
+    for i, m in enumerate(masters):
+        buttons.append([
+            InlineKeyboardButton(text=m["title"], callback_data=f"master_{i}")
+        ])
+
+    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def admin_master_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Добавить мастер-класс", callback_data="add_master")],
+        [InlineKeyboardButton(text="❌ Удалить мастер-класс", callback_data="delete_master")],
+        [InlineKeyboardButton(text="⬅ В меню", callback_data="menu")]
+    ])
+
+
+# ---------- ДЛЯ ПОЛЬЗОВАТЕЛЯ ----------
+
+@dp.callback_query(F.data == "masters")
+async def show_masters(callback: CallbackQuery):
+    masters = load_masterclasses()
+
+    if not masters:
+        await callback.message.answer("Мастер-классы пока не добавлены.")
+    else:
+        await callback.message.answer(
+            "Доступные мастер-классы:",
+            reply_markup=master_list_keyboard()
+        )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("master_"))
+async def master_card(callback: CallbackQuery):
+    index = int(callback.data.split("_")[1])
+    masters = load_masterclasses()
+
+    if index >= len(masters):
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    m = masters[index]
+
+    text = (
+        f"<b>{m['title']}</b>\n\n"
+        f"{m['description']}\n\n"
+        f"📅 {m['date']}\n"
+        f"💰 {m['price']} ₽\n"
+        f"👩‍🏫 {m['teacher']}\n\n"
+        f"<a href='{m['link']}'>Подробнее</a>"
+    )
+
+    await callback.message.answer(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="✉ Записаться", callback_data=f"enroll_{index}")],
+                [InlineKeyboardButton(text="⬅ Назад", callback_data="masters")]
+            ]
+        )
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("enroll_"))
+async def enroll_master(callback: CallbackQuery):
+    index = int(callback.data.split("_")[1])
+    masters = load_masterclasses()
+
+    m = masters[index]
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"📚 Запись на мастер-класс\n\n"
+        f"{m['title']}\n"
+        f"Имя: {callback.from_user.full_name}\n"
+        f"TG ID: {callback.from_user.id}"
+    )
+
+    await callback.answer("Заявка отправлена администратору ✅", show_alert=True)
+
+
+# ---------- АДМИН ----------
+
+@dp.callback_query(F.data == "admin")
+async def admin_panel(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await callback.message.answer(
+        "Админ панель — Мастер-классы:",
+        reply_markup=admin_master_keyboard()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "add_master")
+async def add_master(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(MasterForm.title)
+    await callback.message.answer("Введите название мастер-класса:")
+    await callback.answer()
+
+
+@dp.message(MasterForm.title)
+async def master_title(message: Message, state: FSMContext):
+    await state.update_data(title=message.text)
+    await state.set_state(MasterForm.description)
+    await message.answer("Введите описание:")
+
+
+@dp.message(MasterForm.description)
+async def master_description(message: Message, state: FSMContext):
+    await state.update_data(description=message.text)
+    await state.set_state(MasterForm.date)
+    await message.answer("Введите дату и время:")
+
+
+@dp.message(MasterForm.date)
+async def master_date(message: Message, state: FSMContext):
+    await state.update_data(date=message.text)
+    await state.set_state(MasterForm.price)
+    await message.answer("Введите стоимость:")
+
+
+@dp.message(MasterForm.price)
+async def master_price(message: Message, state: FSMContext):
+    await state.update_data(price=message.text)
+    await state.set_state(MasterForm.teacher)
+    await message.answer("Введите педагога:")
+
+
+@dp.message(MasterForm.teacher)
+async def master_teacher(message: Message, state: FSMContext):
+    await state.update_data(teacher=message.text)
+    await state.set_state(MasterForm.link)
+    await message.answer("Введите ссылку на подробное описание:")
+
+
+@dp.message(MasterForm.link)
+async def master_save(message: Message, state: FSMContext):
+    data = await state.get_data()
+    data["link"] = message.text
+
+    masters = load_masterclasses()
+    masters.append(data)
+    save_masterclasses(masters)
+
+    await message.answer("Мастер-класс добавлен ✅")
+    await state.clear()
+
+
+@dp.callback_query(F.data == "delete_master")
+async def delete_master(callback: CallbackQuery):
+    masters = load_masterclasses()
+
+    if not masters:
+        await callback.answer("Нет мастер-классов", show_alert=True)
+        return
+
+    buttons = []
+    for i, m in enumerate(masters):
+        buttons.append([
+            InlineKeyboardButton(text=f"❌ {m['title']}", callback_data=f"del_{i}")
+        ])
+
+    await callback.message.answer(
+        "Выберите мастер-класс для удаления:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("del_"))
+async def confirm_delete(callback: CallbackQuery):
+    index = int(callback.data.split("_")[1])
+    masters = load_masterclasses()
+
+    if index < len(masters):
+        masters.pop(index)
+        save_masterclasses(masters)
+
+    await callback.answer("Удалено ✅", show_alert=True)
 # ================= ЗАПУСК =================
 
 async def main():
