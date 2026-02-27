@@ -1,25 +1,193 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher
+import os
+from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
 from aiogram.client.default import DefaultBotProperties
+from aiogram.filters import CommandStart
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
+from openpyxl import load_workbook
 
-from config import BOT_TOKEN
-from handlers import register_handlers
+
+# ================= CONFIG =================
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 logging.basicConfig(level=logging.INFO)
 
-async def main():
-    bot = Bot(
-        token=BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
+
+dp = Dispatcher(storage=MemoryStorage())
+
+
+# ================== КЛАВИАТУРЫ ==================
+
+def main_menu(admin=False):
+    buttons = [
+        [InlineKeyboardButton(text="🎨 Кружки", callback_data="clubs")],
+        [InlineKeyboardButton(text="🧩 Мастер-классы", callback_data="masters")],
+        [InlineKeyboardButton(text="🎉 Пакетные туры", callback_data="packages")],
+        [InlineKeyboardButton(text="✉ Написать в поддержку", callback_data="support")]
+    ]
+
+    if admin:
+        buttons.append(
+            [InlineKeyboardButton(text="⚙ Админ панель", callback_data="admin")]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# ================== START ==================
+
+@dp.message(CommandStart())
+async def start(message: Message):
+    text = (
+        "<b>Бот «Виктор»</b>\n"
+        "Детско-юношеский центр «Виктория»\n\n"
+        "У нас 4 подразделения:\n"
+        "• Главное здание – ул. Газопровод д.4\n"
+        "• МХС Аннино – Варшавское ш. 145 стр.1\n"
+        "• СП Юный техник – ул. Нагатинская 22к2\n"
+        "• СП Щербинка – ул. Пушкинская 3А\n\n"
+        "Что вас интересует?"
     )
 
-    dp = Dispatcher()
+    await message.answer(
+        text,
+        reply_markup=main_menu(message.from_user.id == ADMIN_ID)
+    )
 
-    register_handlers(dp)
 
+# ================== ПОДДЕРЖКА ==================
+
+@dp.callback_query(F.data == "support")
+async def support(callback: CallbackQuery):
+    await bot.send_message(
+        ADMIN_ID,
+        f"✉ Обращение в поддержку\n"
+        f"User: {callback.from_user.full_name}\n"
+        f"TG ID: {callback.from_user.id}"
+    )
+
+    await callback.message.answer("Ваш запрос отправлен администратору ✅")
+    await callback.answer()
+
+
+# ================== КРУЖКИ ==================
+
+class ClubForm(StatesGroup):
+    age = State()
+
+
+def load_clubs():
+    wb = load_workbook("joined_clubs.xlsx")
+    sheet = wb.active
+    data = []
+
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        data.append({
+            "direction": row[0],
+            "name": row[1],
+            "age": row[2],
+            "address": row[3],
+            "teacher": row[4],
+            "link": row[5],
+        })
+    return data
+
+
+@dp.callback_query(F.data == "clubs")
+async def clubs_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(ClubForm.age)
+    await callback.message.answer("Введите возраст ребёнка (число):")
+    await callback.answer()
+
+
+@dp.message(ClubForm.age)
+async def clubs_age(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Введите число.")
+        return
+
+    age = int(message.text)
+    clubs = load_clubs()
+
+    filtered = [c for c in clubs if str(age) in str(c["age"])]
+
+    if not filtered:
+        await message.answer("Кружков для этого возраста не найдено.")
+        await state.clear()
+        return
+
+    text = "<b>Подходящие кружки:</b>\n\n"
+
+    for c in filtered:
+        text += (
+            f"<b>{c['name']}</b>\n"
+            f"Возраст: {c['age']}\n"
+            f"Педагог: {c['teacher']}\n"
+            f"Адрес: {c['address']}\n"
+            f"<a href='{c['link']}'>Подробнее</a>\n\n"
+        )
+
+    await message.answer(text)
+    await state.clear()
+
+
+# ================== ПАКЕТЫ ==================
+
+@dp.callback_query(F.data == "packages")
+async def packages(callback: CallbackQuery):
+    await callback.message.answer(
+        "<b>Пакетные туры</b>\n\n"
+        "Хотите весело провести время?\n"
+        "Выбирайте от 1 до 3 активностей.\n\n"
+        "Для групп от 5 человек.\n"
+        "В стоимость входит помещение для чаепития."
+    )
+    await callback.answer()
+
+
+# ================== МАСТЕР-КЛАССЫ ==================
+
+@dp.callback_query(F.data == "masters")
+async def masters(callback: CallbackQuery):
+    await callback.message.answer(
+        "Раздел мастер-классов находится в разработке."
+    )
+    await callback.answer()
+
+
+# ================== АДМИН ==================
+
+@dp.callback_query(F.data == "admin")
+async def admin_panel(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await callback.message.answer("Админ панель")
+    await callback.answer()
+
+
+# ================== ЗАПУСК ==================
+
+async def main():
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
