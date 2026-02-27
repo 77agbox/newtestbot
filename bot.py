@@ -1,21 +1,25 @@
-import logging
 import asyncio
-from aiogram import Bot, Dispatcher, types
-from config import BOT_TOKEN
+import logging
+from aiogram import Bot, Dispatcher
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 
-# Настройка логирования
+from config import BOT_TOKEN
+from handlers import register_handlers
+
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=BOT_TOKEN, parse_mode=types.ParseMode.HTML)
-dp = Dispatcher(bot)
-
-# Регистрация обработчиков
-from handlers import register_handlers
-register_handlers(dp)
-
-# Основная функция для запуска бота
 async def main():
-    await dp.start_polling()
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
 
-if __name__ == '__main__':
+    dp = Dispatcher()
+
+    register_handlers(dp)
+
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
     asyncio.run(main())
