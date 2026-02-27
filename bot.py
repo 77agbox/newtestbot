@@ -16,7 +16,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 from openpyxl import load_workbook
 
-
 # ================= CONFIG =================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -31,53 +30,6 @@ bot = Bot(
 
 dp = Dispatcher(storage=MemoryStorage())
 
-
-# ================= КЛАВИАТУРЫ =================
-
-def main_menu(user_id: int):
-    buttons = [
-        [InlineKeyboardButton(text="🎨 Кружки", callback_data="clubs")],
-        [InlineKeyboardButton(text="✉ Написать в поддержку", callback_data="support")]
-    ]
-
-    if user_id == ADMIN_ID:
-        buttons.append(
-            [InlineKeyboardButton(text="⚙ Админ панель", callback_data="admin")]
-        )
-
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def address_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Главное здание", callback_data="addr_gaz")],
-        [InlineKeyboardButton(text="МХС Аннино", callback_data="addr_ann")],
-        [InlineKeyboardButton(text="СП Юный техник", callback_data="addr_tech")],
-        [InlineKeyboardButton(text="СП Щербинка", callback_data="addr_sher")],
-        [InlineKeyboardButton(text="Онлайн", callback_data="addr_online")],
-        [InlineKeyboardButton(text="⬅ В меню", callback_data="menu")]
-    ])
-
-
-def direction_keyboard(directions):
-    buttons = [
-        [InlineKeyboardButton(text=d, callback_data=f"dir_{d}")]
-        for d in directions
-    ]
-    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def club_keyboard(clubs):
-    buttons = [
-        [InlineKeyboardButton(text=c["name"], callback_data=f"club_{c['name']}")]
-        for c in clubs
-    ]
-    buttons.append([InlineKeyboardButton(text="⬅ Назад", callback_data="back_dir")])
-    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
 # ================= FSM =================
 
 class ClubForm(StatesGroup):
@@ -86,8 +38,7 @@ class ClubForm(StatesGroup):
     direction = State()
     filtered = State()
 
-
-# ================= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =================
+# ================= ВСПОМОГАТЕЛЬНЫЕ =================
 
 def parse_age_range(age_text: str):
     if not age_text:
@@ -117,7 +68,6 @@ def load_clubs():
     sheet = wb.active
 
     clubs = []
-
     for row in sheet.iter_rows(min_row=2, values_only=True):
         clubs.append({
             "direction": row[0],
@@ -127,9 +77,56 @@ def load_clubs():
             "teacher": row[4],
             "link": row[5],
         })
-
     return clubs
 
+# ================= КЛАВИАТУРЫ =================
+
+def main_menu(user_id):
+    buttons = [
+        [InlineKeyboardButton(text="🎨 Кружки", callback_data="clubs")],
+        [InlineKeyboardButton(text="✉ Написать в поддержку", callback_data="support")]
+    ]
+
+    if user_id == ADMIN_ID:
+        buttons.append(
+            [InlineKeyboardButton(text="⚙ Админ панель", callback_data="admin")]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def address_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Главное здание", callback_data="addr_gaz")],
+        [InlineKeyboardButton(text="МХС Аннино", callback_data="addr_ann")],
+        [InlineKeyboardButton(text="СП Юный техник", callback_data="addr_tech")],
+        [InlineKeyboardButton(text="СП Щербинка", callback_data="addr_sher")],
+        [InlineKeyboardButton(text="Онлайн", callback_data="addr_online")],
+        [InlineKeyboardButton(text="⬅ В меню", callback_data="menu")]
+    ])
+
+
+def direction_keyboard(directions):
+    buttons = []
+    for i, d in enumerate(directions):
+        buttons.append(
+            [InlineKeyboardButton(text=d, callback_data=f"dir_{i}")]
+        )
+
+    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def club_keyboard(clubs):
+    buttons = []
+    for i, c in enumerate(clubs):
+        buttons.append(
+            [InlineKeyboardButton(text=c["name"], callback_data=f"club_{i}")]
+        )
+
+    buttons.append([InlineKeyboardButton(text="⬅ Назад", callback_data="back_dir")])
+    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # ================= START =================
 
@@ -140,9 +137,7 @@ async def start(message: Message):
         "Детско-юношеский центр «Виктория»\n\n"
         "Выберите интересующий раздел:"
     )
-
     await message.answer(text, reply_markup=main_menu(message.from_user.id))
-
 
 # ================= МЕНЮ =================
 
@@ -155,7 +150,6 @@ async def back_menu(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-
 # ================= ПОДДЕРЖКА =================
 
 @dp.callback_query(F.data == "support")
@@ -166,9 +160,7 @@ async def support(callback: CallbackQuery):
         f"Имя: {callback.from_user.full_name}\n"
         f"TG ID: {callback.from_user.id}"
     )
-
     await callback.answer("Сообщение отправлено администратору ✅", show_alert=True)
-
 
 # ================= КРУЖКИ =================
 
@@ -240,16 +232,22 @@ async def clubs_address(callback: CallbackQuery, state: FSMContext):
         "Выберите направление:",
         reply_markup=direction_keyboard(directions)
     )
-
     await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("dir_"))
 async def clubs_direction(callback: CallbackQuery, state: FSMContext):
-    direction = callback.data.replace("dir_", "")
+    index = int(callback.data.split("_")[1])
     data = await state.get_data()
 
-    result = [c for c in data["filtered"] if c["direction"] == direction]
+    directions = sorted(list(set([c["direction"] for c in data["filtered"]])))
+
+    if index >= len(directions):
+        await callback.answer("Ошибка выбора", show_alert=True)
+        return
+
+    selected_direction = directions[index]
+    result = [c for c in data["filtered"] if c["direction"] == selected_direction]
 
     await state.update_data(filtered=result)
 
@@ -257,28 +255,30 @@ async def clubs_direction(callback: CallbackQuery, state: FSMContext):
         "Выберите кружок:",
         reply_markup=club_keyboard(result)
     )
-
     await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("club_"))
 async def club_card(callback: CallbackQuery, state: FSMContext):
-    club_name = callback.data.replace("club_", "")
+    index = int(callback.data.split("_")[1])
     data = await state.get_data()
+    clubs = data["filtered"]
 
-    for club in data["filtered"]:
-        if club["name"] == club_name:
-            text = (
-                f"<b>{club['name']}</b>\n\n"
-                f"Возраст: {club['age']}\n"
-                f"Педагог: {club['teacher']}\n"
-                f"Адрес: {club['address']}\n\n"
-                f"<a href='{club['link']}'>Подробнее</a>"
-            )
+    if index >= len(clubs):
+        await callback.answer("Ошибка выбора", show_alert=True)
+        return
 
-            await callback.message.answer(text)
-            break
+    club = clubs[index]
 
+    text = (
+        f"<b>{club['name']}</b>\n\n"
+        f"Возраст: {club['age']}\n"
+        f"Педагог: {club['teacher']}\n"
+        f"Адрес: {club['address']}\n\n"
+        f"<a href='{club['link']}'>Подробнее</a>"
+    )
+
+    await callback.message.answer(text)
     await callback.answer()
 
 
@@ -291,9 +291,7 @@ async def back_to_directions(callback: CallbackQuery, state: FSMContext):
         "Выберите направление:",
         reply_markup=direction_keyboard(directions)
     )
-
     await callback.answer()
-
 
 # ================= ЗАПУСК =================
 
