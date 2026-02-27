@@ -165,6 +165,155 @@ async def support_send(message: Message, state: FSMContext):
     await message.answer("Сообщение отправлено администратору ✅")
     await state.clear()
 
+# ================= CLUBS 3.0 =================
+
+@dp.callback_query(F.data == "clubs")
+async def clubs_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(ClubForm.age)
+    await callback.message.edit_text("Укажите возраст:")
+    await callback.answer()
+
+
+@dp.message(ClubForm.age)
+async def clubs_age(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Введите возраст числом.")
+        return
+
+    await state.update_data(age=int(message.text))
+    await state.set_state(ClubForm.address)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Главное здание", callback_data="addr_0")],
+        [InlineKeyboardButton(text="МХС Аннино", callback_data="addr_1")],
+        [InlineKeyboardButton(text="СП Юный техник", callback_data="addr_2")],
+        [InlineKeyboardButton(text="СП Щербинка", callback_data="addr_3")],
+        [InlineKeyboardButton(text="Онлайн", callback_data="addr_4")],
+        [InlineKeyboardButton(text="⬅ В меню", callback_data="menu")]
+    ])
+
+    await message.answer("Выберите подразделение:", reply_markup=keyboard)
+
+
+@dp.callback_query(F.data.startswith("addr_"))
+async def clubs_address(callback: CallbackQuery, state: FSMContext):
+    index = int(callback.data.split("_")[1])
+    data = await state.get_data()
+    clubs = load_clubs()
+
+    address_filters = [
+        "газопровод",
+        "варшав",
+        "нагатин",
+        "пушкин",
+        ""  # онлайн
+    ]
+
+    filtered = []
+
+    for club in clubs:
+        min_age, max_age = parse_age_range(str(club["age"]))
+        if min_age is None:
+            continue
+
+        if not (min_age <= data["age"] <= max_age):
+            continue
+
+        address = str(club["address"]).lower()
+
+        if index == 4:
+            if not address.strip():
+                filtered.append(club)
+        else:
+            if address_filters[index] in address:
+                filtered.append(club)
+
+    if not filtered:
+        await callback.message.answer("Подходящих кружков не найдено.")
+        await state.clear()
+        await callback.answer()
+        return
+
+    directions = sorted(set(c["direction"] for c in filtered))
+    await state.update_data(clubs=filtered)
+
+    buttons = [
+        [InlineKeyboardButton(text=d, callback_data=f"dir_{i}")]
+        for i, d in enumerate(directions)
+    ]
+    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
+
+    await callback.message.answer(
+        "Выберите направление:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+    await state.set_state(ClubForm.direction)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("dir_"))
+async def clubs_direction(callback: CallbackQuery, state: FSMContext):
+    index = int(callback.data.split("_")[1])
+    data = await state.get_data()
+
+    clubs = data["clubs"]
+    directions = sorted(set(c["direction"] for c in clubs))
+
+    if index >= len(directions):
+        await callback.answer("Ошибка выбора", show_alert=True)
+        return
+
+    selected_direction = directions[index]
+    result = [c for c in clubs if c["direction"] == selected_direction]
+
+    await state.update_data(clubs=result)
+
+    buttons = [
+        [InlineKeyboardButton(text=c["name"], callback_data=f"club_{i}")]
+        for i, c in enumerate(result)
+    ]
+    buttons.append([InlineKeyboardButton(text="⬅ Назад", callback_data="clubs")])
+    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
+
+    await callback.message.answer(
+        "Выберите кружок:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("club_"))
+async def club_card(callback: CallbackQuery, state: FSMContext):
+    index = int(callback.data.split("_")[1])
+    data = await state.get_data()
+
+    clubs = data["clubs"]
+
+    if index >= len(clubs):
+        await callback.answer("Ошибка выбора", show_alert=True)
+        return
+
+    club = clubs[index]
+
+    text = (
+        f"<b>{club['name']}</b>\n\n"
+        f"Возраст: {club['age']}\n"
+        f"Педагог: {club['teacher']}\n"
+        f"Адрес: {club['address']}\n\n"
+        f"<a href='{club['link']}'>Перейти к записи</a>"
+    )
+
+    await callback.message.answer(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅ В меню", callback_data="menu")]
+        ])
+    )
+
+    await callback.answer()
+
 # ================= RUN =================
 
 async def main():
