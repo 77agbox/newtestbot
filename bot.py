@@ -38,6 +38,24 @@ class ClubForm(StatesGroup):
     direction = State()
     filtered = State()
 
+
+class PackageForm(StatesGroup):
+    people = State()
+    activities = State()
+    name = State()
+    phone = State()
+
+# ================= ДАННЫЕ =================
+
+PACKAGE_MODULES = {
+    "Картинг": [2200, 2100, 2000],
+    "Симрейсинг": [1600, 1500, 1400],
+    "Практическая стрельба": [1600, 1500, 1400],
+    "Лазертаг": [1600, 1500, 1400],
+    "Керамика": [1600, 1500, 1400],
+    "Мягкая игрушка": [1300, 1200, 1100],
+}
+
 # ================= ВСПОМОГАТЕЛЬНЫЕ =================
 
 def parse_age_range(age_text: str):
@@ -66,8 +84,8 @@ def parse_age_range(age_text: str):
 def load_clubs():
     wb = load_workbook("joined_clubs.xlsx")
     sheet = wb.active
-
     clubs = []
+
     for row in sheet.iter_rows(min_row=2, values_only=True):
         clubs.append({
             "direction": row[0],
@@ -77,6 +95,7 @@ def load_clubs():
             "teacher": row[4],
             "link": row[5],
         })
+
     return clubs
 
 # ================= КЛАВИАТУРЫ =================
@@ -84,6 +103,7 @@ def load_clubs():
 def main_menu(user_id):
     buttons = [
         [InlineKeyboardButton(text="🎨 Кружки", callback_data="clubs")],
+        [InlineKeyboardButton(text="🎉 Пакетные туры", callback_data="packages")],
         [InlineKeyboardButton(text="✉ Написать в поддержку", callback_data="support")]
     ]
 
@@ -107,24 +127,33 @@ def address_keyboard():
 
 
 def direction_keyboard(directions):
-    buttons = []
-    for i, d in enumerate(directions):
-        buttons.append(
-            [InlineKeyboardButton(text=d, callback_data=f"dir_{i}")]
-        )
-
+    buttons = [
+        [InlineKeyboardButton(text=d, callback_data=f"dir_{i}")]
+        for i, d in enumerate(directions)
+    ]
     buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def club_keyboard(clubs):
-    buttons = []
-    for i, c in enumerate(clubs):
-        buttons.append(
-            [InlineKeyboardButton(text=c["name"], callback_data=f"club_{i}")]
-        )
-
+    buttons = [
+        [InlineKeyboardButton(text=c["name"], callback_data=f"club_{i}")]
+        for i, c in enumerate(clubs)
+    ]
     buttons.append([InlineKeyboardButton(text="⬅ Назад", callback_data="back_dir")])
+    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def activities_keyboard(selected=None):
+    selected = selected or []
+    buttons = []
+
+    for i, name in enumerate(PACKAGE_MODULES.keys()):
+        text = f"{'✅ ' if name in selected else ''}{name}"
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"act_{i}")])
+
+    buttons.append([InlineKeyboardButton(text="🟢 Готово", callback_data="act_done")])
     buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -132,17 +161,15 @@ def club_keyboard(clubs):
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    text = (
-        "<b>Бот «Виктор»</b>\n"
-        "Детско-юношеский центр «Виктория»\n\n"
-        "Выберите интересующий раздел:"
+    await message.answer(
+        "<b>Бот «Виктор»</b>\nДетско-юношеский центр «Виктория»\n\nВыберите раздел:",
+        reply_markup=main_menu(message.from_user.id)
     )
-    await message.answer(text, reply_markup=main_menu(message.from_user.id))
 
 # ================= МЕНЮ =================
 
 @dp.callback_query(F.data == "menu")
-async def back_menu(callback: CallbackQuery, state: FSMContext):
+async def menu(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text(
         "Главное меню:",
@@ -156,9 +183,7 @@ async def back_menu(callback: CallbackQuery, state: FSMContext):
 async def support(callback: CallbackQuery):
     await bot.send_message(
         ADMIN_ID,
-        f"✉ Обращение в поддержку\n"
-        f"Имя: {callback.from_user.full_name}\n"
-        f"TG ID: {callback.from_user.id}"
+        f"✉ Поддержка\nИмя: {callback.from_user.full_name}\nTG ID: {callback.from_user.id}"
     )
     await callback.answer("Сообщение отправлено администратору ✅", show_alert=True)
 
@@ -179,7 +204,6 @@ async def clubs_age(message: Message, state: FSMContext):
 
     await state.update_data(age=int(message.text))
     await state.set_state(ClubForm.address_key)
-
     await message.answer("Выберите подразделение:", reply_markup=address_keyboard())
 
 
@@ -193,32 +217,26 @@ async def clubs_address(callback: CallbackQuery, state: FSMContext):
 
     for club in clubs:
         min_age, max_age = parse_age_range(str(club["age"]))
-
         if min_age is None:
             continue
-
         if not (min_age <= data["age"] <= max_age):
             continue
 
-        address_text = str(club["address"]).lower()
+        address = str(club["address"]).lower()
 
-        if addr_key == "gaz" and "газопровод" in address_text:
+        if addr_key == "gaz" and "газопровод" in address:
             filtered.append(club)
-
-        elif addr_key == "ann" and "варшав" in address_text:
+        elif addr_key == "ann" and "варшав" in address:
             filtered.append(club)
-
-        elif addr_key == "tech" and "нагатин" in address_text:
+        elif addr_key == "tech" and "нагатин" in address:
             filtered.append(club)
-
-        elif addr_key == "sher" and ("пушкин" in address_text or "щербинка" in address_text):
+        elif addr_key == "sher" and ("пушкин" in address or "щербинка" in address):
             filtered.append(club)
-
-        elif addr_key == "online" and not address_text.strip():
+        elif addr_key == "online" and not address.strip():
             filtered.append(club)
 
     if not filtered:
-        await callback.message.answer("К сожалению, подходящих кружков не найдено.")
+        await callback.message.answer("Кружков не найдено.")
         await state.clear()
         await callback.answer()
         return
@@ -226,7 +244,7 @@ async def clubs_address(callback: CallbackQuery, state: FSMContext):
     await state.update_data(filtered=filtered)
     await state.set_state(ClubForm.direction)
 
-    directions = sorted(list(set([c["direction"] for c in filtered])))
+    directions = sorted(set(c["direction"] for c in filtered))
 
     await callback.message.answer(
         "Выберите направление:",
@@ -240,11 +258,7 @@ async def clubs_direction(callback: CallbackQuery, state: FSMContext):
     index = int(callback.data.split("_")[1])
     data = await state.get_data()
 
-    directions = sorted(list(set([c["direction"] for c in data["filtered"]])))
-
-    if index >= len(directions):
-        await callback.answer("Ошибка выбора", show_alert=True)
-        return
+    directions = sorted(set(c["direction"] for c in data["filtered"]))
 
     selected_direction = directions[index]
     result = [c for c in data["filtered"] if c["direction"] == selected_direction]
@@ -262,13 +276,7 @@ async def clubs_direction(callback: CallbackQuery, state: FSMContext):
 async def club_card(callback: CallbackQuery, state: FSMContext):
     index = int(callback.data.split("_")[1])
     data = await state.get_data()
-    clubs = data["filtered"]
-
-    if index >= len(clubs):
-        await callback.answer("Ошибка выбора", show_alert=True)
-        return
-
-    club = clubs[index]
+    club = data["filtered"][index]
 
     text = (
         f"<b>{club['name']}</b>\n\n"
@@ -281,23 +289,106 @@ async def club_card(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(text)
     await callback.answer()
 
+# ================= ПАКЕТНЫЕ ТУРЫ =================
 
-@dp.callback_query(F.data == "back_dir")
-async def back_to_directions(callback: CallbackQuery, state: FSMContext):
+@dp.callback_query(F.data == "packages")
+async def start_package(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PackageForm.people)
+    await callback.message.edit_text("Введите количество человек (минимум 5):")
+    await callback.answer()
+
+
+@dp.message(PackageForm.people)
+async def package_people(message: Message, state: FSMContext):
+    if not message.text.isdigit() or int(message.text) < 5:
+        await message.answer("Минимум 5 человек.")
+        return
+
+    await state.update_data(people=int(message.text), selected=[])
+    await state.set_state(PackageForm.activities)
+
+    await message.answer("Выберите активности:", reply_markup=activities_keyboard())
+
+
+@dp.callback_query(F.data.startswith("act_"))
+async def choose_activity(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    directions = sorted(list(set([c["direction"] for c in data["filtered"]])))
+    selected = data.get("selected", [])
 
-    await callback.message.answer(
-        "Выберите направление:",
-        reply_markup=direction_keyboard(directions)
+    if callback.data == "act_done":
+        if not 1 <= len(selected) <= 3:
+            await callback.answer("Выберите 1-3 активности", show_alert=True)
+            return
+
+        await state.set_state(PackageForm.name)
+        await callback.message.answer("Введите ваше имя:")
+        await callback.answer()
+        return
+
+    index = int(callback.data.split("_")[1])
+    activity = list(PACKAGE_MODULES.keys())[index]
+
+    if activity in selected:
+        selected.remove(activity)
+    else:
+        if len(selected) >= 3:
+            await callback.answer("Максимум 3 активности", show_alert=True)
+            return
+        selected.append(activity)
+
+    await state.update_data(selected=selected)
+
+    await callback.message.edit_reply_markup(
+        reply_markup=activities_keyboard(selected)
     )
     await callback.answer()
+
+
+@dp.message(PackageForm.name)
+async def package_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await state.set_state(PackageForm.phone)
+    await message.answer("Введите телефон:")
+
+
+@dp.message(PackageForm.phone)
+async def package_finish(message: Message, state: FSMContext):
+    data = await state.get_data()
+
+    people = data["people"]
+    selected = data["selected"]
+    name = data["name"]
+    phone = message.text
+
+    price_index = len(selected) - 1
+
+    total = 0
+    per_person = 0
+
+    for act in selected:
+        price = PACKAGE_MODULES[act][price_index]
+        total += price * people
+        per_person += price
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"🛒 Новая заявка\n\nИмя: {name}\nТелефон: {phone}\n"
+        f"TG ID: {message.from_user.id}\n"
+        f"Группа: {people}\nАктивности: {', '.join(selected)}\n"
+        f"С человека: {per_person} ₽\nОбщая сумма: {total} ₽"
+    )
+
+    await message.answer(
+        f"✅ Заявка принята!\nС человека: {per_person} ₽\nОбщая сумма: {total} ₽",
+        reply_markup=main_menu(message.from_user.id)
+    )
+
+    await state.clear()
 
 # ================= ЗАПУСК =================
 
 async def main():
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
