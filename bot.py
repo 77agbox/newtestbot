@@ -314,6 +314,338 @@ async def club_card(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
+# ================= MASTERCLASSES 3.0 =================
+
+# ---------- Пользователь ----------
+
+@dp.callback_query(F.data == "masters")
+async def masters_list(callback: CallbackQuery):
+    masters = load_masterclasses()
+
+    if not masters:
+        await callback.message.answer("Мастер-классы пока не добавлены.")
+        await callback.answer()
+        return
+
+    buttons = [
+        [InlineKeyboardButton(text=m["title"], callback_data=f"master_{i}")]
+        for i, m in enumerate(masters)
+    ]
+    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
+
+    await callback.message.answer(
+        "Доступные мастер-классы:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("master_"))
+async def master_card(callback: CallbackQuery):
+    index = int(callback.data.split("_")[1])
+    masters = load_masterclasses()
+
+    if index >= len(masters):
+        await callback.answer("Ошибка выбора", show_alert=True)
+        return
+
+    m = masters[index]
+
+    text = (
+        f"<b>{m['title']}</b>\n\n"
+        f"{m['description']}\n\n"
+        f"📅 {m['date']}\n"
+        f"💰 {m['price']} ₽\n"
+        f"👩‍🏫 {m['teacher']}\n\n"
+        f"<a href='{m['link']}'>Подробнее</a>"
+    )
+
+    await callback.message.answer(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✉ Записаться", callback_data=f"enroll_{index}")],
+            [InlineKeyboardButton(text="⬅ Назад", callback_data="masters")],
+            [InlineKeyboardButton(text="⬅ В меню", callback_data="menu")]
+        ])
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("enroll_"))
+async def master_enroll(callback: CallbackQuery):
+    index = int(callback.data.split("_")[1])
+    masters = load_masterclasses()
+
+    if index >= len(masters):
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    m = masters[index]
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"📚 Запись на мастер-класс\n\n"
+        f"{m['title']}\n"
+        f"Профиль: {profile_link(callback.from_user)}\n"
+        f"TG ID: {callback.from_user.id}",
+        disable_web_page_preview=True
+    )
+
+    await callback.answer("Заявка отправлена администратору ✅", show_alert=True)
+
+# ---------- Админ ----------
+
+@dp.callback_query(F.data == "admin")
+async def admin_panel(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await callback.message.answer(
+        "Админ панель — Мастер-классы:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Добавить МК", callback_data="add_master")],
+            [InlineKeyboardButton(text="❌ Удалить МК", callback_data="delete_master")],
+            [InlineKeyboardButton(text="⬅ В меню", callback_data="menu")]
+        ])
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "add_master")
+async def master_add_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(MasterForm.title)
+    await callback.message.answer("Введите название мастер-класса:")
+    await callback.answer()
+
+
+@dp.message(MasterForm.title)
+async def master_title(message: Message, state: FSMContext):
+    await state.update_data(title=message.text)
+    await state.set_state(MasterForm.description)
+    await message.answer("Введите описание:")
+
+
+@dp.message(MasterForm.description)
+async def master_description(message: Message, state: FSMContext):
+    await state.update_data(description=message.text)
+    await state.set_state(MasterForm.date)
+    await message.answer("Введите дату и время:")
+
+
+@dp.message(MasterForm.date)
+async def master_date(message: Message, state: FSMContext):
+    await state.update_data(date=message.text)
+    await state.set_state(MasterForm.price)
+    await message.answer("Введите стоимость:")
+
+
+@dp.message(MasterForm.price)
+async def master_price(message: Message, state: FSMContext):
+    await state.update_data(price=message.text)
+    await state.set_state(MasterForm.teacher)
+    await message.answer("Введите педагога:")
+
+
+@dp.message(MasterForm.teacher)
+async def master_teacher(message: Message, state: FSMContext):
+    await state.update_data(teacher=message.text)
+    await state.set_state(MasterForm.link)
+    await message.answer("Введите ссылку на подробное описание:")
+
+
+@dp.message(MasterForm.link)
+async def master_save(message: Message, state: FSMContext):
+    data = await state.get_data()
+    data["link"] = message.text
+
+    masters = load_masterclasses()
+    masters.append(data)
+    save_masterclasses(masters)
+
+    await message.answer("Мастер-класс добавлен ✅")
+    await state.clear()
+
+
+@dp.callback_query(F.data == "delete_master")
+async def master_delete_list(callback: CallbackQuery):
+    masters = load_masterclasses()
+
+    if not masters:
+        await callback.answer("Нет мастер-классов", show_alert=True)
+        return
+
+    buttons = [
+        [InlineKeyboardButton(text=f"❌ {m['title']}", callback_data=f"del_{i}")]
+        for i, m in enumerate(masters)
+    ]
+
+    await callback.message.answer(
+        "Выберите МК для удаления:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("del_"))
+async def master_delete_confirm(callback: CallbackQuery):
+    index = int(callback.data.split("_")[1])
+    masters = load_masterclasses()
+
+    if index < len(masters):
+        masters.pop(index)
+        save_masterclasses(masters)
+
+    await callback.answer("Удалено ✅", show_alert=True)
+
+# ================= PACKAGES 3.0 =================
+
+PACKAGE_MODULES = {
+    "Картинг": [2200, 2100, 2000],
+    "Симрейсинг": [1600, 1500, 1400],
+    "Практическая стрельба": [1600, 1500, 1400],
+    "Лазертаг": [1600, 1500, 1400],
+    "Керамика": [1600, 1500, 1400],
+    "Мягкая игрушка": [1300, 1200, 1100],
+}
+
+
+def activities_keyboard(selected=None):
+    selected = selected or []
+    buttons = []
+
+    for i, name in enumerate(PACKAGE_MODULES.keys()):
+        prefix = "✅ " if name in selected else ""
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{prefix}{name}",
+                callback_data=f"act_{i}"
+            )
+        ])
+
+    buttons.append([InlineKeyboardButton(text="🟢 Готово", callback_data="act_done")])
+    buttons.append([InlineKeyboardButton(text="⬅ В меню", callback_data="menu")])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@dp.callback_query(F.data == "packages")
+async def package_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PackageForm.people)
+    await callback.message.answer(
+        "👥 Введите количество человек (минимум 5):"
+    )
+    await callback.answer()
+
+
+@dp.message(PackageForm.people)
+async def package_people(message: Message, state: FSMContext):
+    if not message.text.isdigit() or int(message.text) < 5:
+        await message.answer("Минимум 5 человек.")
+        return
+
+    await state.update_data(
+        people=int(message.text),
+        selected=[]
+    )
+    await state.set_state(PackageForm.activities)
+
+    await message.answer(
+        "🎯 Выберите от 1 до 3 активностей:",
+        reply_markup=activities_keyboard()
+    )
+
+
+@dp.callback_query(F.data.startswith("act_"))
+async def package_choose_activity(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected = data.get("selected", [])
+
+    if callback.data == "act_done":
+        if not 1 <= len(selected) <= 3:
+            await callback.answer("Выберите 1–3 активности", show_alert=True)
+            return
+
+        await state.set_state(PackageForm.name)
+        await callback.message.answer("Введите ваше имя:")
+        await callback.answer()
+        return
+
+    index = int(callback.data.split("_")[1])
+    activity = list(PACKAGE_MODULES.keys())[index]
+
+    if activity in selected:
+        selected.remove(activity)
+    else:
+        if len(selected) >= 3:
+            await callback.answer("Можно выбрать максимум 3 активности", show_alert=True)
+            return
+        selected.append(activity)
+
+    await state.update_data(selected=selected)
+
+    # обновляем клавиатуру с галочками
+    await callback.message.edit_reply_markup(
+        reply_markup=activities_keyboard(selected)
+    )
+    await callback.answer()
+
+
+@dp.message(PackageForm.name)
+async def package_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text.strip())
+    await state.set_state(PackageForm.phone)
+    await message.answer("📞 Введите телефон для связи:")
+
+
+@dp.message(PackageForm.phone)
+async def package_finish(message: Message, state: FSMContext):
+    data = await state.get_data()
+
+    people = data["people"]
+    selected = data["selected"]
+    name = data["name"]
+    phone = message.text.strip()
+
+    price_index = len(selected) - 1
+
+    total = 0
+    per_person_total = 0
+    lines = []
+
+    for act in selected:
+        price = PACKAGE_MODULES[act][price_index]
+        cost = price * people
+        total += cost
+        per_person_total += price
+        lines.append(f"• {act}: <b>{price} ₽</b> с человека")
+
+    activities_text = "\n".join(lines)
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"🎉 Новая заявка на пакетный тур\n\n"
+        f"Клиент: {name}\n"
+        f"Телефон: {phone}\n"
+        f"Профиль: {profile_link(message.from_user)}\n"
+        f"TG ID: {message.from_user.id}\n\n"
+        f"Группа: {people} человек\n"
+        f"Активности: {', '.join(selected)}\n\n"
+        f"{activities_text}\n\n"
+        f"С человека: {per_person_total} ₽\n"
+        f"Общая сумма: {total} ₽",
+        disable_web_page_preview=True
+    )
+
+    await message.answer(
+        f"✅ Ваша заявка принята!\n\n"
+        f"{activities_text}\n\n"
+        f"💰 С человека: {per_person_total} ₽\n"
+        f"👥 Общая сумма: {total} ₽",
+    )
+
+    await state.clear()
+
 # ================= RUN =================
 
 async def main():
