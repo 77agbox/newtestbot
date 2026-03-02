@@ -761,16 +761,18 @@ async def broadcast_send(message: Message, state: FSMContext):
     success = 0
     removed = 0
 
-unsubscribe_kb = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(
-            text="ℹ Управление уведомлениями",
-            callback_data="manage_notifications"
-        )]
-    ]
-)
+    unsubscribe_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="ℹ Управление уведомлениями",
+                callback_data="manage_notifications"
+            )]
+        ]
+    )
 
-    for user_id in users.copy():
+    for user in users.copy():
+        user_id = user["id"] if isinstance(user, dict) else user
+
         try:
             if message.photo:
                 photo = message.photo[-1].file_id
