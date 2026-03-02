@@ -761,11 +761,14 @@ async def broadcast_send(message: Message, state: FSMContext):
     success = 0
     removed = 0
 
-    unsubscribe_kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отписаться", callback_data="unsubscribe")]
-        ]
-    )
+unsubscribe_kb = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(
+            text="ℹ Управление уведомлениями",
+            callback_data="manage_notifications"
+        )]
+    ]
+)
 
     for user_id in users.copy():
         try:
@@ -802,12 +805,41 @@ async def broadcast_send(message: Message, state: FSMContext):
     await state.clear()
 
 
-# -------- Отписка --------
+# -------- Управление уведомлениями --------
 
-@dp.callback_query(F.data == "unsubscribe")
-async def unsubscribe(callback: CallbackQuery):
+@dp.callback_query(F.data == "manage_notifications")
+async def manage_notifications(callback: CallbackQuery):
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🔕 Отписаться от рассылки",
+                callback_data="unsubscribe_confirm"
+            )],
+            [InlineKeyboardButton(
+                text="⬅ Назад",
+                callback_data="close_manage"
+            )]
+        ]
+    )
+
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "unsubscribe_confirm")
+async def unsubscribe_confirm(callback: CallbackQuery):
     remove_user(callback.from_user.id)
-    await callback.message.edit_text("Вы отписались от рассылки.")
+
+    await callback.message.edit_text(
+        "🔕 Вы отписались от рассылки.\n\n"
+        "Чтобы снова получать уведомления — нажмите /start"
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "close_manage")
+async def close_manage(callback: CallbackQuery):
+    await callback.message.edit_reply_markup(reply_markup=None)
     await callback.answer()
 
 # ================= RUN =================
