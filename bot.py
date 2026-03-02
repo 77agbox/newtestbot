@@ -11,7 +11,7 @@ from aiogram.types import (
     InlineKeyboardButton
 )
 from aiogram.client.default import DefaultBotProperties
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -131,6 +131,8 @@ def main_menu(user_id):
 
 @dp.message(CommandStart())
 async def start(message: Message):
+    add_user(message.from_user.id)
+
     await message.answer(
         "Приветствую! Я Бот Виктор!\n"
         "Я помогу вам выбрать интересные занятия в нашем центре.\n\n"
@@ -686,6 +688,127 @@ async def package_finish(message: Message, state: FSMContext):
     )
 
     await state.clear()
+
+# ================= PRO BROADCAST SYSTEM =================
+
+USERS_FILE = "users.json"
+
+
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        return []
+    with open(USERS_FILE, "r") as f:
+        return json.load(f)
+
+
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f)
+
+
+def add_user(user_id):
+    users = load_users()
+    if user_id not in users:
+        users.append(user_id)
+        save_users(users)
+
+
+def remove_user(user_id):
+    users = load_users()
+    if user_id in users:
+        users.remove(user_id)
+        save_users(users)
+
+
+# ====== ДОБАВЬТЕ В /start add_user ======
+# Внутри вашего start обязательно должна быть строка:
+# add_user(message.from_user.id)
+
+
+class BroadcastForm(StatesGroup):
+    content = State()
+
+
+# -------- Команда статистики --------
+
+@dp.message(Command("users"))
+async def users_stat(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    users = load_users()
+    await message.answer(f"👥 Всего пользователей: {len(users)}")
+
+
+# -------- Запуск рассылки --------
+
+@dp.message(Command("broadcast"))
+async def broadcast_start(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    await state.set_state(BroadcastForm.content)
+    await message.answer(
+        "Отправьте текст или фото с подписью для рассылки."
+    )
+
+
+# -------- Отправка рассылки --------
+
+@dp.message(BroadcastForm.content)
+async def broadcast_send(message: Message, state: FSMContext):
+    users = load_users()
+    success = 0
+    removed = 0
+
+    unsubscribe_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отписаться", callback_data="unsubscribe")]
+        ]
+    )
+
+    for user_id in users.copy():
+        try:
+            if message.photo:
+                photo = message.photo[-1].file_id
+                await bot.send_photo(
+                    user_id,
+                    photo,
+                    caption=message.caption or "",
+                    reply_markup=unsubscribe_kb
+                )
+            else:
+                await bot.send_message(
+                    user_id,
+                    message.text,
+                    reply_markup=unsubscribe_kb
+                )
+
+            success += 1
+            await asyncio.sleep(0.05)
+
+        except Exception as e:
+            if "bot was blocked" in str(e):
+                remove_user(user_id)
+                removed += 1
+            continue
+
+    await message.answer(
+        f"📊 Рассылка завершена\n\n"
+        f"✅ Доставлено: {success}\n"
+        f"🚫 Удалено (заблокировали): {removed}"
+    )
+
+    await state.clear()
+
+
+# -------- Отписка --------
+
+@dp.callback_query(F.data == "unsubscribe")
+async def unsubscribe(callback: CallbackQuery):
+    remove_user(callback.from_user.id)
+    await callback.message.edit_text("Вы отписались от рассылки.")
+    await callback.answer()
 
 # ================= RUN =================
 
